@@ -39,9 +39,39 @@ const userSchema = new mongoose.Schema(
 // user model
 const User = mongoose.model('User', userSchema);
 
-//! check connection endpoint
-app.get('/', (req, res) => {
-    res.send(`test connection`);
+//** Middleware to authenticate JWT access tokens */
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) {
+        res.status(401).json({ message: `Unauthorized` });
+        return;
+    } else {
+        jwt.verify(token, process.env.SECRET_KEY, (err, user) => {
+            if (err) {
+                res.status(401).json({ message: `Unauthorized` });
+            } else {
+                req.user = user;
+                next();
+            }
+        });
+    }
+};
+
+//? Get user profile
+app.get('/profile', authenticateToken, async (req, res) => {
+    try {
+        const id = req.user.id;
+        const user = await User.findById(id);
+        if (user) {
+            res.json(user);
+        } else {
+            res.status(404).json({ message: `User not found!` });
+        }
+    } catch (error) {
+        console.log(error);
+        res.json({ message: `Internal Server Error!` });
+    }
 });
 
 //! API to create a user
@@ -149,6 +179,11 @@ app.delete('/users/:id', async (req, res) => {
         console.log(error);
         res.json({ message: `Internal Server Error!` });
     }
+});
+
+//! check connection endpoint
+app.get('/', (req, res) => {
+    res.send(`test connection`);
 });
 
 // server listening
