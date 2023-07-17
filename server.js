@@ -1,210 +1,23 @@
 // import packages
 const express = require('express');
-const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
+const connectDB = require('./config/db');
+// const User = require('./models/User');
+const userRoute = require('./routes/api/users');
 require('dotenv').config();
 
 // initializations
 const app = express();
 const port = process.env.PORT || 8080;
-const uri = process.env.MONGO_URI;
 
 // body parser
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// connect mongoose
-mongoose.connect(uri, { useNewUrlParser: true });
-mongoose.connection.on('connected', () => {
-    console.log(`Mongoose Default Connection Open`);
-});
-mongoose.connection.on('error', (error) => {
-    console.log(`Mongoose Default Connection Error!`);
-});
+// connect database
+connectDB();
 
-// user schema
-const userSchema = new mongoose.Schema(
-    {
-        fname: String,
-        lname: String,
-        age: Number,
-        email: String,
-        password: String,
-    },
-    { timestamps: true }
-);
-
-// user model
-const User = mongoose.model('User', userSchema);
-
-//** Middleware to authenticate JWT access tokens */
-const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) {
-        res.status(401).json({ message: `Unauthorized` });
-        return;
-    } else {
-        jwt.verify(token, process.env.SECRET_KEY, (err, user) => {
-            if (err) {
-                res.status(401).json({ message: `Unauthorized` });
-            } else {
-                req.user = user;
-                next();
-            }
-        });
-    }
-};
-
-//? Get user profile
-app.get('/profile', authenticateToken, async (req, res) => {
-    try {
-        const id = req.user.id;
-        const user = await User.findById(id);
-        if (user) {
-            res.json(user);
-        } else {
-            res.status(404).json({ message: `User not found!` });
-        }
-    } catch (error) {
-        console.log(error);
-        res.json({ message: `Internal Server Error!` });
-    }
-});
-
-//! API to create a user
-app.post('/users', async (req, res) => {
-    try {
-        const salt = await bcrypt.genSalt(15);
-        const hash = await bcrypt.hash(req.body.password, salt);
-        const userObj = {
-            fname: req.body.fname,
-            lname: req.body.lname,
-            age: req.body.age,
-            email: req.body.email,
-            password: hash,
-        };
-        const user = new User(userObj);
-        await user.save();
-        res.json(user);
-    } catch (error) {
-        console.log(error);
-        res.json({ message: `Internal Server Error!` });
-    }
-});
-
-//! API to login a user
-app.post('/users/login', async (req, res) => {
-    try {
-        const { email, password, type, refreshToken } = req.body;
-        if (!type) {
-            res.status(401).json({ message: 'type is not defined' });
-        } else {
-            if (type == 'email') {
-                const user = await User.findOne({ email: email });
-                if (!user) {
-                    res.status(404).json({ message: `User Not Found` });
-                } else {
-                    const isValidPassword = await bcrypt.compare(
-                        password,
-                        user.password
-                    );
-                    if (!isValidPassword) {
-                        res.status(401).json({ message: `Wrong Password` });
-                    } else {
-                        getUserToken(user, res);
-                    }
-                }
-            } else {
-                if (!refreshToken) {
-                    res.status(401).json({
-                        message: `refreshToken is not defined`,
-                    });
-                } else {
-                    jwt.verify(
-                        refreshToken,
-                        process.env.SECRET_KEY,
-                        async (err, payload) => {
-                            if (err) {
-                                res.status(401).json({
-                                    message: `Unauthorized`,
-                                });
-                            } else {
-                                const id = payload.id;
-                                const user = await User.findById(id);
-                                if (!user) {
-                                    res.status(401).json({
-                                        message: `Unauthorized`,
-                                    });
-                                } else {
-                                    getUserToken(user, res);
-                                }
-                            }
-                        }
-                    );
-                }
-            }
-        }
-    } catch (error) {
-        console.log(error);
-        res.json({ message: `Internal Server Error!` });
-    }
-});
-
-//! API to get all users
-app.get('/users', async (req, res) => {
-    try {
-        const users = await User.find({});
-        res.json(users);
-    } catch (error) {
-        console.log(error);
-        res.json({ message: `Internal Server Error!` });
-    }
-});
-
-//! API to get a user by ID
-app.get('/users/:id', async (req, res) => {
-    try {
-        const id = req.params.id;
-        const user = await User.findById(id);
-        res.json(user);
-    } catch (error) {
-        console.log(error);
-        res.json({ message: `Internal Server Error!` });
-    }
-});
-
-//! API to Update a user by ID
-app.put('/users/:id', async (req, res) => {
-    try {
-        const id = req.params.id;
-        const user = await User.findByIdAndUpdate(id, { new: true });
-        if (user) {
-            user.fname = req.body.fname;
-            user.lname = req.body.lname;
-            res.json(user);
-        } else {
-            res.status(404).json({ message: `User not found!` });
-        }
-    } catch (error) {
-        console.log(error);
-        res.json({ message: `Internal Server Error!` });
-    }
-});
-
-//! API to Delete a user
-app.delete('/users/:id', async (req, res) => {
-    try {
-        const id = req.params.id;
-        const user = await User.findByIdAndDelete(id);
-        res.json(user);
-    } catch (error) {
-        console.log(error);
-        res.json({ message: `Internal Server Error!` });
-    }
-});
+app.use('/api/users', userRoute);
 
 //! check connection endpoint
 app.get('/', (req, res) => {
@@ -215,25 +28,3 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`server running at ${port}`);
 });
-function getUserToken(user, res) {
-    const accessToken = jwt.sign(
-        {
-            email: user.email,
-            id: user._id,
-        },
-        process.env.SECRET_KEY,
-        { expiresIn: '2 days' }
-    );
-    const refreshToken = jwt.sign(
-        {
-            email: user.email,
-            id: user._id,
-        },
-        process.env.SECRET_KEY,
-        { expiresIn: '30 days' }
-    );
-    const userObj = user.toJSON();
-    userObj['accessToken'] = accessToken;
-    userObj['refreshToken'] = refreshToken;
-    res.json(userObj);
-}
