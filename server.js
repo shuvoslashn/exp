@@ -98,28 +98,53 @@ app.post('/users', async (req, res) => {
 //! API to login a user
 app.post('/users/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
-        const user = await User.findOne({ email: email });
-        if (!user) {
-            res.status(404).json({ message: `User Not Found` });
+        const { email, password, type, refreshToken } = req.body;
+        if (!type) {
+            res.status(401).json({ message: 'type is not defined' });
         } else {
-            const isValidPassword = await bcrypt.compare(
-                password,
-                user.password
-            );
-            if (!isValidPassword) {
-                res.status(401).json({ message: `Wrong Password` });
+            if (type == 'email') {
+                const user = await User.findOne({ email: email });
+                if (!user) {
+                    res.status(404).json({ message: `User Not Found` });
+                } else {
+                    const isValidPassword = await bcrypt.compare(
+                        password,
+                        user.password
+                    );
+                    if (!isValidPassword) {
+                        res.status(401).json({ message: `Wrong Password` });
+                    } else {
+                        getUserToken(user, res);
+                    }
+                }
             } else {
-                const token = jwt.sign(
-                    {
-                        email: user.email,
-                        id: user._id,
-                    },
-                    process.env.SECRET_KEY
-                );
-                const userObj = user.toJSON();
-                userObj['accessToken'] = token;
-                res.json(userObj);
+                if (!refreshToken) {
+                    res.status(401).json({
+                        message: `refreshToken is not defined`,
+                    });
+                } else {
+                    jwt.verify(
+                        refreshToken,
+                        process.env.SECRET_KEY,
+                        async (err, payload) => {
+                            if (err) {
+                                res.status(401).json({
+                                    message: `Unauthorized`,
+                                });
+                            } else {
+                                const id = payload.id;
+                                const user = await User.findById(id);
+                                if (!user) {
+                                    res.status(401).json({
+                                        message: `Unauthorized`,
+                                    });
+                                } else {
+                                    getUserToken(user, res);
+                                }
+                            }
+                        }
+                    );
+                }
             }
         }
     } catch (error) {
@@ -190,3 +215,25 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`server running at ${port}`);
 });
+function getUserToken(user, res) {
+    const accessToken = jwt.sign(
+        {
+            email: user.email,
+            id: user._id,
+        },
+        process.env.SECRET_KEY,
+        { expiresIn: '2 days' }
+    );
+    const refreshToken = jwt.sign(
+        {
+            email: user.email,
+            id: user._id,
+        },
+        process.env.SECRET_KEY,
+        { expiresIn: '30 days' }
+    );
+    const userObj = user.toJSON();
+    userObj['accessToken'] = accessToken;
+    userObj['refreshToken'] = refreshToken;
+    res.json(userObj);
+}
